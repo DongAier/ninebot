@@ -6,12 +6,18 @@
   <title>BLE 解限速与自动大灯工具</title>
   <style>
     body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f4f4f9; }
-    .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 90%; max-width: 360px; text-align: center; }
+    .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 90%; max-width: 380px; text-align: center; }
     button { padding: 12px 20px; font-size: 16px; border: none; border-radius: 8px; background: #007bff; color: white; cursor: pointer; width: 100%; margin-top: 10px; }
     button:disabled { background: #ccc; cursor: not-allowed; }
     input { padding: 10px; font-size: 14px; width: calc(100% - 22px); border: 1px solid #ccc; border-radius: 6px; margin-top: 10px; }
-    #log { margin-top: 15px; font-size: 13px; color: #555; white-space: pre-wrap; text-align: left; background: #f9f9f9; padding: 10px; border-radius: 6px; max-height: 120px; overflow-y: auto;}
-    .status-box { font-size: 14px; color: #e65100; background: #fff3e0; padding: 8px; border-radius: 6px; margin-bottom: 15px; }
+    
+    /* 日志窗口美化 */
+    #logContainer { margin-top: 15px; text-align: left; }
+    .log-header { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #666; margin-bottom: 5px; }
+    #copyLogBtn { padding: 4px 8px; font-size: 11px; background: #6c75d6; width: auto; margin: 0; border-radius: 4px; }
+    #log { font-size: 12px; color: #333; white-space: pre-wrap; background: #1e1e1e; color: #00ff00; padding: 10px; border-radius: 6px; height: 140px; overflow-y: auto; font-family: monospace; text-align: left; }
+    
+    .status-box { font-size: 13px; color: #e65100; background: #fff3e0; padding: 8px; border-radius: 6px; margin-bottom: 15px; }
   </style>
 </head>
 <body>
@@ -23,11 +29,17 @@
     <button id="btn">连接并执行操作</button>
     
     <div id="activateArea" style="display:none; margin-top: 15px; border-top: 1px dashed #ddd; padding-top: 10px;">
-      <input type="text" id="keyInput" placeholder="请输入购买的密钥 (如: KEY-20261108-XXXX)">
+      <input type="text" id="keyInput" placeholder="请输入购买的密钥 (如: KEY-20261231-XXXX)">
       <button id="activateBtn" style="background: #28a745;">激活软件</button>
     </div>
 
-    <div id="log">等待操作...</div>
+    <div id="logContainer">
+      <div class="log-header">
+        <span>运行日志与进度：</span>
+        <button id="copyLogBtn">一键复制日志</button>
+      </div>
+      <div id="log">等待操作...</div>
+    </div>
   </div>
 
   <script>
@@ -37,6 +49,7 @@
     const activateArea = document.getElementById('activateArea');
     const keyInput = document.getElementById('keyInput');
     const activateBtn = document.getElementById('activateBtn');
+    const copyLogBtn = document.getElementById('copyLogBtn');
 
     const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
     const TX_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
@@ -44,20 +57,37 @@
     // 免费试用天数配置（例如：给新用户 3 天免费试用期）
     const FREE_DAYS = 3;
 
-    function showLog(msg) {
-      log.innerText = msg;
+    let logContent = "等待操作...\n";
+
+    function showLog(msg, isError = false) {
+      const timeStr = new Date().toTimeString().split(' ')[0];
+      const prefix = isError ? "[错误 ❌] " : "[信息 ℹ️] ";
+      const formattedMsg = `${timeStr} ${prefix}${msg}\n`;
+      
+      logContent += formattedMsg;
+      log.innerText = logContent;
+      // 自动滚动到底部
+      log.scrollTop = log.scrollHeight;
     }
+
+    // 一键复制日志功能
+    copyLogBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(logContent).then(() => {
+        alert('日志已复制！您可以直接粘贴发送给作者排查。');
+      }).catch(err => {
+        alert('复制失败，请手动截图发送。');
+      });
+    });
 
     // 检查本地授权和免费时间
     function checkPermission() {
       const savedKey = localStorage.getItem('tool_license_key');
       
-      // 1. 先检查是否有有效的长期/短期密钥
       if (savedKey) {
         try {
           const parts = savedKey.split('-');
           if (parts.length === 3 && parts[0] === 'KEY') {
-            const expireDateStr = parts[1]; // 格式: YYYYMMDD
+            const expireDateStr = parts[1];
             const expireDate = new Date(
               expireDateStr.slice(0,4),
               expireDateStr.slice(4,6) - 1,
@@ -73,33 +103,27 @@
               return true;
             }
           }
-        } catch (e) {
-          // 解析错误忽略，走试用逻辑
-        }
+        } catch (e) {}
       }
 
-      // 2. 检查按时间的免费试用逻辑
       let firstVisitTime = localStorage.getItem('tool_first_visit');
       const now = new Date().getTime();
 
       if (!firstVisitTime) {
-        // 第一次打开，记录当前时间
         localStorage.setItem('tool_first_visit', now);
         firstVisitTime = now;
       }
 
-      // 计算已过去多少天
       const passedDays = (now - parseInt(firstVisitTime)) / (1000 * 60 * 60 * 24);
       const remainingDays = Math.ceil(FREE_DAYS - passedDays);
 
       if (passedDays < FREE_DAYS) {
         statusBox.innerText = `🎁 免费试用中 (剩余试用时间约: ${remainingDays} 天)`;
-        activateArea.style.display = 'block'; // 试用期间也允许随时输入密钥升级
+        activateArea.style.display = 'block';
         btn.disabled = false;
         btn.style.background = '#007bff';
         return true;
       } else {
-        // 试用期已过且无有效密钥
         statusBox.innerText = `⚠️ 免费试用已结束，请获取密钥继续使用 (5元/3个月，10元/年)`;
         activateArea.style.display = 'block';
         btn.disabled = true;
@@ -108,7 +132,7 @@
       }
     }
 
-    // 激活按钮点击事件
+    // 激活按钮
     activateBtn.addEventListener('click', () => {
       const inputKey = keyInput.value.trim();
       try {
@@ -130,66 +154,66 @@
           return;
         }
 
-        // 保存密钥到本地
         localStorage.setItem('tool_license_key', inputKey);
         alert('激活成功！');
         keyInput.value = '';
-        
-        // 重新检查权限并刷新界面状态
         checkPermission();
       } catch (e) {
         alert('无效的密钥，请检查格式');
       }
     });
 
-    // 页面加载时立即执行权限检查
     checkPermission();
 
-    // 蓝牙核心操作逻辑
+    // 蓝牙核心操作逻辑（带详细进度与报错捕获）
     btn.addEventListener('click', async () => {
-      // 再次双重拦截
       if (!checkPermission()) {
         alert('试用已结束，请先输入密钥激活！');
         return;
       }
 
       if (!navigator.bluetooth) {
-        showLog('当前浏览器不支持蓝牙功能，请使用安卓 Chrome 浏览器并通过 HTTPS 打开。');
+        showLog('当前浏览器不支持蓝牙功能，请使用安卓 Chrome 浏览器并通过 HTTPS 打开。', true);
         return;
       }
 
       try {
         btn.disabled = true;
-        showLog('正在搜索蓝牙设备...');
+        showLog('步骤 1/6: 正在弹出系统蓝牙设备选择框...');
 
         const device = await navigator.bluetooth.requestDevice({
           acceptAllDevices: true,
           optionalServices: [SERVICE_UUID]
         });
 
-        showLog('已选择设备，正在连接 GATT 服务...');
-        const server = await device.gatt.connect();
+        // 记录选中的设备名称，方便排查
+        showLog(`已选中目标设备: 名称=[${device.name || '未知设备'}], ID=[${device.id}]`);
 
-        showLog('正在获取通信服务...');
+        showLog('步骤 2/6: 正在建立 GATT 连接...');
+        const server = await device.gatt.connect();
+        showLog('GATT 连接成功！');
+
+        showLog('步骤 3/6: 正在获取通信服务 (UUID: ' + SERVICE_UUID + ')...');
         const service = await server.getPrimaryService(SERVICE_UUID);
 
-        showLog('正在获取通信通道...');
+        showLog('步骤 4/6: 正在获取通信特征通道 (UUID: ' + TX_UUID + ')...');
         const characteristic = await service.getCharacteristic(TX_UUID);
 
         const payload = new Uint8Array([
           0x5A, 0xA5, 0x00, 0x70, 0x57, 0x45, 0x77, 0x76, 0x65, 0x6E, 0x46, 0x7A, 0x39
         ]);
 
-        showLog('正在发送第一条指令...');
+        showLog('步骤 5/6: 正在向车辆发送第一条解锁指令...');
         await characteristic.writeValue(payload);
+        showLog('第一条指令发送成功，车机或控制器应有响应（第一声“叮”），等待 2 秒确认...');
 
-        showLog('第一条已发送，等待 2 秒确认...');
         setTimeout(async () => {
           try {
+            showLog('步骤 6/6: 正在发送第二条确认指令...');
             await characteristic.writeValue(payload);
-            showLog('指令全部发送完成，操作成功！');
+            showLog('✅ 指令全部发送完成，流程执行成功！');
           } catch (err) {
-            showLog('第二次确认发送失败: ' + err.message);
+            showLog('❌ 第二次确认发送失败: ' + err.message, true);
           } finally {
             if (checkPermission()) {
               btn.disabled = false;
@@ -198,7 +222,14 @@
         }, 2000);
 
       } catch (err) {
-        showLog('操作失败或已取消: ' + err.message);
+        // 捕获各种报错（如用户取消配对、蓝牙未开启、车型不支持找不到服务等）
+        showLog('❌ 操作失败或中断: ' + err.message, true);
+        if (err.name === 'NotFoundError') {
+          showLog('提示: 用户取消了设备选择，或附近未搜到匹配信号。', true);
+        } else if (err.name === 'SecurityError' || err.message.includes('Service')) {
+          showLog('提示: 找不到指定服务UUID，可能是该车型固件不匹配、协议不同，或者连接被拒绝。', true);
+        }
+        
         if (checkPermission()) {
           btn.disabled = false;
         }
