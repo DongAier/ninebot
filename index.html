@@ -28,6 +28,7 @@
     }
 
     btn.addEventListener('click', async () => {
+      // 检查浏览器是否支持 Web Bluetooth
       if (!navigator.bluetooth) {
         showLog('当前浏览器不支持蓝牙功能，请使用安卓 Chrome 浏览器并通过 HTTPS 打开。');
         return;
@@ -37,22 +38,22 @@
         btn.disabled = true;
         showLog('正在搜索蓝牙设备...');
 
-        // 允许搜索所有设备，同时声明后续需要调用的服务 UUID
+        // 必须用 acceptAllDevices: true 才能搜出不广播长 UUID 的车辆
         const device = await navigator.bluetooth.requestDevice({
           acceptAllDevices: true,
           optionalServices: [SERVICE_UUID]
         });
 
-        showLog('已选择设备，正在建立 GATT 连接...');
+        showLog('已选择设备，正在连接 GATT 服务...');
         const server = await device.gatt.connect();
 
         showLog('正在获取通信服务...');
         const service = await server.getPrimaryService(SERVICE_UUID);
 
-        showLog('正在获取写入通道...');
+        showLog('正在获取通信通道...');
         const characteristic = await service.getCharacteristic(TX_UUID);
 
-        // 解锁 Hex 数据
+        // 构造解锁 Hex 数据: 5aa5007057457776656e467a39
         const payload = new Uint8Array([
           0x5A, 0xA5, 0x00, 0x70, 0x57, 0x45, 0x77, 0x76, 0x65, 0x6E, 0x46, 0x7A, 0x39
         ]);
