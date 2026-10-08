@@ -10,7 +10,7 @@
     button { padding: 12px 20px; font-size: 16px; border: none; border-radius: 8px; background: #007bff; color: white; cursor: pointer; width: 100%; margin-top: 10px; }
     button:disabled { background: #ccc; cursor: not-allowed; }
     input { padding: 10px; font-size: 14px; width: calc(100% - 22px); border: 1px solid #ccc; border-radius: 6px; margin-top: 10px; }
-    #log { margin-top: 15px; font-size: 13px; color: #555; white-space: pre-wrap; text-align: left; background: #f9f9f9; padding: 10px; border-radius: 6px; max-height: 100px; overflow-y: auto;}
+    #log { margin-top: 15px; font-size: 13px; color: #555; white-space: pre-wrap; text-align: left; background: #f9f9f9; padding: 10px; border-radius: 6px; max-height: 120px; overflow-y: auto;}
     .status-box { font-size: 14px; color: #e65100; background: #fff3e0; padding: 8px; border-radius: 6px; margin-bottom: 15px; }
   </style>
 </head>
@@ -41,14 +41,14 @@
     const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
     const TX_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
 
-    // 免费试用次数配置
-    const MAX_FREE_TRIES = 3;
+    // 免费试用天数配置（例如：给新用户 3 天免费试用期）
+    const FREE_DAYS = 3;
 
     function showLog(msg) {
       log.innerText = msg;
     }
 
-    // 检查本地授权和免费次数
+    // 检查本地授权和免费时间
     function checkPermission() {
       const savedKey = localStorage.getItem('tool_license_key');
       
@@ -68,23 +68,38 @@
             if (today <= expireDate) {
               statusBox.innerText = `✅ 已激活会员 (有效期至: ${expireDateStr.slice(0,4)}-${expireDateStr.slice(4,6)}-${expireDateStr.slice(6,8)})`;
               activateArea.style.display = 'none';
+              btn.disabled = false;
+              btn.style.background = '#007bff';
               return true;
             }
           }
         } catch (e) {
-          // 解析错误忽略，走免费或过期逻辑
+          // 解析错误忽略，走试用逻辑
         }
       }
 
-      // 2. 检查免费次数
-      let freeCount = parseInt(localStorage.getItem('tool_free_count') || '0');
-      if (freeCount < MAX_FREE_TRIES) {
-        const remaining = MAX_FREE_TRIES - freeCount;
-        statusBox.innerText = `🎁 免费试用中 (剩余免费次数: ${remaining} 次)`;
-        activateArea.style.display = 'block'; // 也允许随时输入密钥
+      // 2. 检查按时间的免费试用逻辑
+      let firstVisitTime = localStorage.getItem('tool_first_visit');
+      const now = new Date().getTime();
+
+      if (!firstVisitTime) {
+        // 第一次打开，记录当前时间
+        localStorage.setItem('tool_first_visit', now);
+        firstVisitTime = now;
+      }
+
+      // 计算已过去多少天
+      const passedDays = (now - parseInt(firstVisitTime)) / (1000 * 60 * 60 * 24);
+      const remainingDays = Math.ceil(FREE_DAYS - passedDays);
+
+      if (passedDays < FREE_DAYS) {
+        statusBox.innerText = `🎁 免费试用中 (剩余试用时间约: ${remainingDays} 天)`;
+        activateArea.style.display = 'block'; // 试用期间也允许随时输入密钥升级
+        btn.disabled = false;
+        btn.style.background = '#007bff';
         return true;
       } else {
-        // 免费次数用完且无有效密钥
+        // 试用期已过且无有效密钥
         statusBox.innerText = `⚠️ 免费试用已结束，请获取密钥继续使用 (5元/3个月，10元/年)`;
         activateArea.style.display = 'block';
         btn.disabled = true;
@@ -99,7 +114,7 @@
       try {
         const parts = inputKey.split('-');
         if (parts.length !== 3 || parts[0] !== 'KEY') {
-          alert('密钥格式错误！');
+          alert('密钥格式错误！正确格式如：KEY-20261231-XXXX');
           return;
         }
         const expireDateStr = parts[1];
@@ -115,26 +130,26 @@
           return;
         }
 
-        // 保存密钥
+        // 保存密钥到本地
         localStorage.setItem('tool_license_key', inputKey);
         alert('激活成功！');
         keyInput.value = '';
-        btn.disabled = false;
-        btn.style.background = '#007bff';
+        
+        // 重新检查权限并刷新界面状态
         checkPermission();
       } catch (e) {
         alert('无效的密钥，请检查格式');
       }
     });
 
-    // 页面加载时检查权限
+    // 页面加载时立即执行权限检查
     checkPermission();
 
-    // 蓝牙解锁核心逻辑
+    // 蓝牙核心操作逻辑
     btn.addEventListener('click', async () => {
-      // 再次拦截，防止恶意点击
+      // 再次双重拦截
       if (!checkPermission()) {
-        alert('请先激活或购买密钥！');
+        alert('试用已结束，请先输入密钥激活！');
         return;
       }
 
@@ -168,20 +183,11 @@
         showLog('正在发送第一条指令...');
         await characteristic.writeValue(payload);
 
-        showLog('指令已发送，等待 2 秒确认...');
+        showLog('第一条已发送，等待 2 秒确认...');
         setTimeout(async () => {
           try {
             await characteristic.writeValue(payload);
-            showLog('指令全部发送完成！');
-            
-            // 如果当前是在消耗免费次数，次数 +1
-            const savedKey = localStorage.getItem('tool_license_key');
-            if (!savedKey) {
-              let freeCount = parseInt(localStorage.getItem('tool_free_count') || '0');
-              localStorage.setItem('tool_free_count', freeCount + 1);
-            }
-            checkPermission();
-
+            showLog('指令全部发送完成，操作成功！');
           } catch (err) {
             showLog('第二次确认发送失败: ' + err.message);
           } finally {
