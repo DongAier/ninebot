@@ -3,32 +3,141 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BLE 一键解锁工具</title>
+  <title>BLE 解限速与自动大灯工具</title>
   <style>
-    body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f4f4f9; }
-    button { padding: 15px 30px; font-size: 18px; border: none; border-radius: 8px; background: #007bff; color: white; cursor: pointer; }
-    button:disabled { background: #ccc; }
-    #log { margin-top: 20px; font-size: 14px; color: #555; white-space: pre-wrap; text-align: center; }
+    body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f4f4f9; }
+    .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 90%; max-width: 360px; text-align: center; }
+    button { padding: 12px 20px; font-size: 16px; border: none; border-radius: 8px; background: #007bff; color: white; cursor: pointer; width: 100%; margin-top: 10px; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    input { padding: 10px; font-size: 14px; width: calc(100% - 22px); border: 1px solid #ccc; border-radius: 6px; margin-top: 10px; }
+    #log { margin-top: 15px; font-size: 13px; color: #555; white-space: pre-wrap; text-align: left; background: #f9f9f9; padding: 10px; border-radius: 6px; max-height: 100px; overflow-y: auto;}
+    .status-box { font-size: 14px; color: #e65100; background: #fff3e0; padding: 8px; border-radius: 6px; margin-bottom: 15px; }
   </style>
 </head>
 <body>
 
-  <button id="btn">连接并解锁车辆</button>
-  <div id="log">等待操作...</div>
+  <div class="card">
+    <h3>BLE 车控工具</h3>
+    <div id="statusBox" class="status-box">正在检查授权状态...</div>
+
+    <button id="btn">连接并执行操作</button>
+    
+    <div id="activateArea" style="display:none; margin-top: 15px; border-top: 1px dashed #ddd; padding-top: 10px;">
+      <input type="text" id="keyInput" placeholder="请输入购买的密钥 (如: KEY-20261108-XXXX)">
+      <button id="activateBtn" style="background: #28a745;">激活软件</button>
+    </div>
+
+    <div id="log">等待操作...</div>
+  </div>
 
   <script>
     const btn = document.getElementById('btn');
     const log = document.getElementById('log');
+    const statusBox = document.getElementById('statusBox');
+    const activateArea = document.getElementById('activateArea');
+    const keyInput = document.getElementById('keyInput');
+    const activateBtn = document.getElementById('activateBtn');
 
     const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
     const TX_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+
+    // 免费试用次数配置
+    const MAX_FREE_TRIES = 3;
 
     function showLog(msg) {
       log.innerText = msg;
     }
 
+    // 检查本地授权和免费次数
+    function checkPermission() {
+      const savedKey = localStorage.getItem('tool_license_key');
+      
+      // 1. 先检查是否有有效的长期/短期密钥
+      if (savedKey) {
+        try {
+          const parts = savedKey.split('-');
+          if (parts.length === 3 && parts[0] === 'KEY') {
+            const expireDateStr = parts[1]; // 格式: YYYYMMDD
+            const expireDate = new Date(
+              expireDateStr.slice(0,4),
+              expireDateStr.slice(4,6) - 1,
+              expireDateStr.slice(6,8)
+            );
+            const today = new Date();
+            
+            if (today <= expireDate) {
+              statusBox.innerText = `✅ 已激活会员 (有效期至: ${expireDateStr.slice(0,4)}-${expireDateStr.slice(4,6)}-${expireDateStr.slice(6,8)})`;
+              activateArea.style.display = 'none';
+              return true;
+            }
+          }
+        } catch (e) {
+          // 解析错误忽略，走免费或过期逻辑
+        }
+      }
+
+      // 2. 检查免费次数
+      let freeCount = parseInt(localStorage.getItem('tool_free_count') || '0');
+      if (freeCount < MAX_FREE_TRIES) {
+        const remaining = MAX_FREE_TRIES - freeCount;
+        statusBox.innerText = `🎁 免费试用中 (剩余免费次数: ${remaining} 次)`;
+        activateArea.style.display = 'block'; // 也允许随时输入密钥
+        return true;
+      } else {
+        // 免费次数用完且无有效密钥
+        statusBox.innerText = `⚠️ 免费试用已结束，请获取密钥继续使用 (5元/3个月，10元/年)`;
+        activateArea.style.display = 'block';
+        btn.disabled = true;
+        btn.style.background = '#ccc';
+        return false;
+      }
+    }
+
+    // 激活按钮点击事件
+    activateBtn.addEventListener('click', () => {
+      const inputKey = keyInput.value.trim();
+      try {
+        const parts = inputKey.split('-');
+        if (parts.length !== 3 || parts[0] !== 'KEY') {
+          alert('密钥格式错误！');
+          return;
+        }
+        const expireDateStr = parts[1];
+        const expireDate = new Date(
+          expireDateStr.slice(0,4),
+          expireDateStr.slice(4,6) - 1,
+          expireDateStr.slice(6,8)
+        );
+        const today = new Date();
+
+        if (today > expireDate) {
+          alert('该密钥已过有效期！');
+          return;
+        }
+
+        // 保存密钥
+        localStorage.setItem('tool_license_key', inputKey);
+        alert('激活成功！');
+        keyInput.value = '';
+        btn.disabled = false;
+        btn.style.background = '#007bff';
+        checkPermission();
+      } catch (e) {
+        alert('无效的密钥，请检查格式');
+      }
+    });
+
+    // 页面加载时检查权限
+    checkPermission();
+
+    // 蓝牙解锁核心逻辑
     btn.addEventListener('click', async () => {
-      // 检查浏览器是否支持 Web Bluetooth
+      // 再次拦截，防止恶意点击
+      if (!checkPermission()) {
+        alert('请先激活或购买密钥！');
+        return;
+      }
+
       if (!navigator.bluetooth) {
         showLog('当前浏览器不支持蓝牙功能，请使用安卓 Chrome 浏览器并通过 HTTPS 打开。');
         return;
@@ -38,7 +147,6 @@
         btn.disabled = true;
         showLog('正在搜索蓝牙设备...');
 
-        // 必须用 acceptAllDevices: true 才能搜出不广播长 UUID 的车辆
         const device = await navigator.bluetooth.requestDevice({
           acceptAllDevices: true,
           optionalServices: [SERVICE_UUID]
@@ -53,7 +161,6 @@
         showLog('正在获取通信通道...');
         const characteristic = await service.getCharacteristic(TX_UUID);
 
-        // 构造解锁 Hex 数据: 5aa5007057457776656e467a39
         const payload = new Uint8Array([
           0x5A, 0xA5, 0x00, 0x70, 0x57, 0x45, 0x77, 0x76, 0x65, 0x6E, 0x46, 0x7A, 0x39
         ]);
@@ -61,21 +168,34 @@
         showLog('正在发送第一条指令...');
         await characteristic.writeValue(payload);
 
-        showLog('第一声“叮”，等待 2 秒确认...');
+        showLog('指令已发送，等待 2 秒确认...');
         setTimeout(async () => {
           try {
             await characteristic.writeValue(payload);
-            showLog('第二声“叮”已发送，解锁流程完成！');
+            showLog('指令全部发送完成！');
+            
+            // 如果当前是在消耗免费次数，次数 +1
+            const savedKey = localStorage.getItem('tool_license_key');
+            if (!savedKey) {
+              let freeCount = parseInt(localStorage.getItem('tool_free_count') || '0');
+              localStorage.setItem('tool_free_count', freeCount + 1);
+            }
+            checkPermission();
+
           } catch (err) {
             showLog('第二次确认发送失败: ' + err.message);
           } finally {
-            btn.disabled = false;
+            if (checkPermission()) {
+              btn.disabled = false;
+            }
           }
         }, 2000);
 
       } catch (err) {
         showLog('操作失败或已取消: ' + err.message);
-        btn.disabled = false;
+        if (checkPermission()) {
+          btn.disabled = false;
+        }
       }
     });
   </script>
