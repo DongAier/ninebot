@@ -42,7 +42,7 @@
     </div>
   </div>
 
-  <script>
+<script>
     const btn = document.getElementById('btn');
     const log = document.getElementById('log');
     const statusBox = document.getElementById('statusBox');
@@ -54,8 +54,34 @@
     const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
     const TX_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
 
-    // 免费试用天数配置（例如：给新用户 3 天免费试用期）
-    const FREE_DAYS = 3;
+    // 免费试用天数配置（例如：给新用户 1 天免费试用期）
+    const FREE_DAYS = 1;
+
+    // 3个月卡（25个，激活起算90天）
+    const KEYS_3M = new Set([
+      "KEY-20270108-C1B036", "KEY-20270108-A73087", "KEY-20270108-8CA3CA",
+      "KEY-20270108-543166", "KEY-20270108-D8EA9D", "KEY-20270108-6A4DA1",
+      "KEY-20270108-E4C20E", "KEY-20270108-323869", "KEY-20270108-BEE1F0",
+      "KEY-20270108-94196D", "KEY-20270108-189674", "KEY-20270108-F6FCB3",
+      "KEY-20270108-4C82E8", "KEY-20270108-C62BB5", "KEY-20270108-AEA518",
+      "KEY-20270108-877B81", "KEY-20270108-5F5802", "KEY-20270108-D3D2B9",
+      "KEY-20270108-67B460", "KEY-20270108-EB2DCD", "KEY-20270108-39A7A6",
+      "KEY-20270108-B1803F", "KEY-20270108-99FD8C", "KEY-20270108-1D74F5",
+      "KEY-20270108-FBF96A"
+    ]);
+
+    // 包年卡（25个，激活起算365天）
+    const KEYS_1Y = new Set([
+      "KEY-20271008-011F9E", "KEY-20271008-859F29", "KEY-20271008-AF1984",
+      "KEY-20271008-3196FD", "KEY-20271008-BED86A", "KEY-20271008-1C5C13",
+      "KEY-20271008-90D58C", "KEY-20271008-7F5637", "KEY-20271008-E7CFB0",
+      "KEY-20271008-4B482F", "KEY-20271008-C9C1B6", "KEY-20271008-534E41",
+      "KEY-20271008-DDC7D8", "KEY-20271008-22C4B3", "KEY-20271008-A0492E",
+      "KEY-20271008-8EC679", "KEY-20271008-144FC2", "KEY-20271008-FCCE5B",
+      "KEY-20271008-60C9C0", "KEY-20271008-EC4279", "KEY-20271008-3CB9E2",
+      "KEY-20271008-B43E19", "KEY-20271008-98B786", "KEY-20271008-163EF3",
+      "KEY-20271008-FA9968"
+    ]);
 
     let logContent = "等待操作...\n";
 
@@ -63,68 +89,58 @@
       const timeStr = new Date().toTimeString().split(' ')[0];
       const prefix = isError ? "[错误 ❌] " : "[信息 ℹ️] ";
       const formattedMsg = `${timeStr} ${prefix}${msg}\n`;
-      
       logContent += formattedMsg;
       log.innerText = logContent;
-      // 自动滚动到底部
       log.scrollTop = log.scrollHeight;
     }
 
-    // 一键复制日志功能
     copyLogBtn.addEventListener('click', () => {
       navigator.clipboard.writeText(logContent).then(() => {
         alert('日志已复制！您可以直接粘贴发送给作者排查。');
-      }).catch(err => {
+      }).catch(() => {
         alert('复制失败，请手动截图发送。');
       });
     });
 
-    // 检查本地授权和免费时间
+    function formatDate(d) {
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    // 检查本地授权和免费时间（活期顺延逻辑）
     function checkPermission() {
-      const savedKey = localStorage.getItem('tool_license_key');
-      
-      if (savedKey) {
-        try {
-          const parts = savedKey.split('-');
-          if (parts.length === 3 && parts[0] === 'KEY') {
-            const expireDateStr = parts[1];
-            const expireDate = new Date(
-              expireDateStr.slice(0,4),
-              expireDateStr.slice(4,6) - 1,
-              expireDateStr.slice(6,8)
-            );
-            const today = new Date();
-            
-            if (today <= expireDate) {
-              statusBox.innerText = `✅ 已激活会员 (有效期至: ${expireDateStr.slice(0,4)}-${expireDateStr.slice(4,6)}-${expireDateStr.slice(6,8)})`;
-              activateArea.style.display = 'none';
-              btn.disabled = false;
-              btn.style.background = '#007bff';
-              return true;
-            }
-          }
-        } catch (e) {}
+      const savedExpiry = localStorage.getItem('tool_auth_expiry');
+      const now = Date.now();
+
+      if (savedExpiry) {
+        const expireTime = Number(savedExpiry);
+        if (now <= expireTime) {
+          statusBox.innerText = `✅ 已激活会员 (有效期至: ${formatDate(new Date(expireTime))})`;
+          activateArea.style.display = 'none';
+          btn.disabled = false;
+          btn.style.background = '#007bff';
+          return true;
+        } else {
+          localStorage.removeItem('tool_auth_expiry');
+        }
       }
 
       let firstVisitTime = localStorage.getItem('tool_first_visit');
-      const now = new Date().getTime();
-
       if (!firstVisitTime) {
-        localStorage.setItem('tool_first_visit', now);
-        firstVisitTime = now;
+        firstVisitTime = String(now);
+        localStorage.setItem('tool_first_visit', firstVisitTime);
       }
 
-      const passedDays = (now - parseInt(firstVisitTime)) / (1000 * 60 * 60 * 24);
-      const remainingDays = Math.ceil(FREE_DAYS - passedDays);
+      const passedDays = (now - Number(firstVisitTime)) / (1000 * 60 * 60 * 24);
+      const remainingHours = Math.ceil((FREE_DAYS - passedDays) * 24);
 
       if (passedDays < FREE_DAYS) {
-        statusBox.innerText = `🎁 免费试用中 (剩余试用时间约: ${remainingDays} 天)`;
+        statusBox.innerText = `🎁 免费试用中 (剩余试用时间约: ${remainingHours} 小时)`;
         activateArea.style.display = 'block';
         btn.disabled = false;
         btn.style.background = '#007bff';
         return true;
       } else {
-        statusBox.innerText = `⚠️ 免费试用已结束，请获取密钥继续使用 (5元/3个月，10元/年)`;
+        statusBox.innerText = `⚠️ 免费试用已结束，请输入卡密激活 (5元/3个月，10元/年)`;
         activateArea.style.display = 'block';
         btn.disabled = true;
         btn.style.background = '#ccc';
@@ -132,40 +148,39 @@
       }
     }
 
-    // 激活按钮
+    // 激活按钮（核对白名单 + 从激活瞬间起算天数）
     activateBtn.addEventListener('click', () => {
-      const inputKey = keyInput.value.trim();
-      try {
-        const parts = inputKey.split('-');
-        if (parts.length !== 3 || parts[0] !== 'KEY') {
-          alert('密钥格式错误！正确格式如：KEY-20261231-XXXX');
-          return;
-        }
-        const expireDateStr = parts[1];
-        const expireDate = new Date(
-          expireDateStr.slice(0,4),
-          expireDateStr.slice(4,6) - 1,
-          expireDateStr.slice(6,8)
-        );
-        const today = new Date();
+      const inputKey = keyInput.value.trim().toUpperCase();
+      const usedKeys = new Set(JSON.parse(localStorage.getItem('tool_used_keys') || '[]'));
 
-        if (today > expireDate) {
-          alert('该密钥已过有效期！');
-          return;
-        }
-
-        localStorage.setItem('tool_license_key', inputKey);
-        alert('激活成功！');
-        keyInput.value = '';
-        checkPermission();
-      } catch (e) {
-        alert('无效的密钥，请检查格式');
+      if (usedKeys.has(inputKey)) {
+        alert('该卡密已使用并过期，请更换新卡密！');
+        return;
       }
+
+      let daysToAdd = 0;
+      if (KEYS_3M.has(inputKey)) {
+        daysToAdd = 90;
+      } else if (KEYS_1Y.has(inputKey)) {
+        daysToAdd = 365;
+      } else {
+        alert('卡密无效或不存在，请检查是否输入正确！');
+        return;
+      }
+
+      const expireTimestamp = Date.now() + (daysToAdd * 24 * 60 * 60 * 1000);
+      usedKeys.add(inputKey);
+      localStorage.setItem('tool_used_keys', JSON.stringify([...usedKeys]));
+      localStorage.setItem('tool_auth_expiry', String(expireTimestamp));
+
+      alert(`激活成功！有效期至：${formatDate(new Date(expireTimestamp))}`);
+      keyInput.value = '';
+      checkPermission();
     });
 
     checkPermission();
 
-    // 蓝牙核心操作逻辑（带详细进度与报错捕获）
+    // 蓝牙核心操作逻辑
     btn.addEventListener('click', async () => {
       if (!checkPermission()) {
         alert('试用已结束，请先输入密钥激活！');
@@ -186,7 +201,6 @@
           optionalServices: [SERVICE_UUID]
         });
 
-        // 记录选中的设备名称，方便排查
         showLog(`已选中目标设备: 名称=[${device.name || '未知设备'}], ID=[${device.id}]`);
 
         showLog('步骤 2/6: 正在建立 GATT 连接...');
@@ -222,7 +236,6 @@
         }, 2000);
 
       } catch (err) {
-        // 捕获各种报错（如用户取消配对、蓝牙未开启、车型不支持找不到服务等）
         showLog('❌ 操作失败或中断: ' + err.message, true);
         if (err.name === 'NotFoundError') {
           showLog('提示: 用户取消了设备选择，或附近未搜到匹配信号。', true);
@@ -236,5 +249,3 @@
       }
     });
   </script>
-</body>
-</html>
